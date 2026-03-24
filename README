@@ -1,10 +1,10 @@
-DO NOT MERGE WITH THIS FORK.
+for me to read and write to. please, for the love of god, dont look at my horrible changes when i make them
 Linux kernel
 ============
 
 The Linux kernel is the core of any Linux operating system. It manages hardware,
 system resources, and provides the fundamental services for all other software.
-
+yeah, i know! i use fedora.
 Quick Start
 -----------
 
@@ -12,7 +12,7 @@ Quick Start
 * Get the latest kernel: https://kernel.org
 * Build the kernel: See Documentation/admin-guide/quickly-build-trimmed-linux.rst
 * Join the community: https://lore.kernel.org/
-
+cool
 Essential Documentation
 -----------------------
 
@@ -24,12 +24,13 @@ All users should be familiar with:
 
 Documentation can be built with make htmldocs or viewed online at:
 https://www.kernel.org/doc/html/latest/
-
+hmmmm ok ok
 
 Who Are You?
 ============
 
 Find your role below:
+academic researcher :)
 
 * New Kernel Developer - Getting started with kernel development
 * Academic Researcher - Studying kernel internals and architecture
@@ -57,7 +58,7 @@ Welcome! Start your kernel development journey here:
 * Development Tools: Documentation/dev-tools/index.rst
 * Kernel Hacking Guide: Documentation/kernel-hacking/hacking.rst
 * Core APIs: Documentation/core-api/index.rst
-
+thank you :) i will be making edits to this, though dont expect *good* edits when it happens.
 Academic Researcher
 -------------------
 
@@ -145,7 +146,7 @@ Package and distribute the kernel:
 * Module Signing: Documentation/admin-guide/module-signing.rst
 * Kernel Parameters: Documentation/admin-guide/kernel-parameters.rst
 * Tainted Kernels: Documentation/admin-guide/tainted-kernels.rst
-
+ uhhhhhhhhhhhhhhh ok
 AI Coding Assistant
 -------------------
 
@@ -157,7 +158,7 @@ kernel:
 
 This documentation contains essential requirements about licensing, attribution,
 and the Developer Certificate of Origin that all AI tools must comply with.
-
+gladly im a human
 
 Communication and Support
 =========================
@@ -167,3 +168,4 @@ Communication and Support
 * Bugzilla: https://bugzilla.kernel.org/
 * MAINTAINERS file: Lists subsystem maintainers and mailing lists
 * Email Clients: Documentation/process/email-clients.rst
+ok
