@@ -24,14 +24,14 @@ ENABLED=`which selinuxenabled` || {
 	echo "Do you have libselinux-utils installed?"
 	exit 1
 }
-
+# this checks if selinux is alr enabled...
 if selinuxenabled; then
     echo "SELinux is already enabled"
     echo "This prevents safely relabeling all files."
     echo "Boot with selinux=0 on the kernel command-line."
     exit 1
 fi
-
+# making directory tree?
 cd mdp
 ./mdp -m policy.conf file_contexts
 $CP -U allow -M -o policy.$VERS policy.conf
