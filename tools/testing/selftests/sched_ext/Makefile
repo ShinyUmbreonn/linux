@@ -163,10 +163,14 @@ all_test_bpfprogs := $(foreach prog,$(wildcard *.bpf.c),$(INCLUDE_DIR)/$(patsubs
 
 auto-test-targets :=			\
 	create_dsq			\
+	dequeue				\
+	dequeue_iter			\
+	dequeue_remote			\
 	enq_last_no_enq_fails		\
 	ddsp_bogus_dsq_fail		\
 	ddsp_vtimelocal_fail		\
 	dsp_local_on			\
+	enable_cmask			\
 	enq_select_cpu			\
 	exit				\
 	hotplug				\
@@ -174,6 +178,8 @@ auto-test-targets :=			\
 	maximal				\
 	maybe_null			\
 	minimal				\
+	non_scx_kfunc_deny		\
+	nohz_tick			\
 	numa				\
 	allowed_cpus			\
 	peek_dsq			\
@@ -188,6 +194,7 @@ auto-test-targets :=			\
 	rt_stall			\
 	test_example			\
 	total_bw			\
+	cyclic_kick_wait		\
 
 testcase-targets := $(addsuffix .o,$(addprefix $(SCXOBJ_DIR)/,$(auto-test-targets)))
 

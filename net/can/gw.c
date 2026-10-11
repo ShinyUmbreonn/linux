@@ -375,10 +375,10 @@ static void cgw_csum_crc8_rel(struct canfd_frame *cf,
 		return;
 
 	if (from <= to) {
-		for (i = crc8->from_idx; i <= crc8->to_idx; i++)
+		for (i = from; i <= to; i++)
 			crc = crc8->crctab[crc ^ cf->data[i]];
 	} else {
-		for (i = crc8->from_idx; i >= crc8->to_idx; i--)
+		for (i = from; i >= to; i--)
 			crc = crc8->crctab[crc ^ cf->data[i]];
 	}
 
@@ -397,7 +397,7 @@ static void cgw_csum_crc8_rel(struct canfd_frame *cf,
 		break;
 	}
 
-	cf->data[crc8->result_idx] = crc ^ crc8->final_xor_val;
+	cf->data[res] = crc ^ crc8->final_xor_val;
 }
 
 static void cgw_csum_crc8_pos(struct canfd_frame *cf,
@@ -526,6 +526,9 @@ static void can_can_gw_rcv(struct sk_buff *skb, void *data)
 
 	/* put the incremented hop counter in the cloned skb */
 	ncsx->can_gw_hops = csx->can_gw_hops + 1;
+
+	/* force a new CAN UID generation for the routed frame */
+	ncsx->can_skb_uid = 0;
 
 	/* first processing of this CAN frame -> adjust to private hop limit */
 	if (gwj->limit_hops && ncsx->can_gw_hops == 1)

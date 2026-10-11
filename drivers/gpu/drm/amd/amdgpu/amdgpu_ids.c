@@ -22,7 +22,7 @@
  */
 #include "amdgpu_ids.h"
 
-#include <linux/idr.h>
+#include <linux/xarray.h>
 #include <linux/dma-fence-array.h>
 
 
@@ -35,10 +35,13 @@
  * PASIDs are global address space identifiers that can be shared
  * between the GPU, an IOMMU and the driver. VMs on different devices
  * may use the same PASID if they share the same address
- * space. Therefore PASIDs are allocated using a global IDA. VMs are
- * looked up from the PASID per amdgpu_device.
+ * space. Therefore PASIDs are allocated using IDR cyclic allocator
+ * (similar to kernel PID allocation) which naturally delays reuse.
+ * VMs are looked up from the PASID per amdgpu_device.
  */
-static DEFINE_IDA(amdgpu_pasid_ida);
+
+static DEFINE_XARRAY_FLAGS(amdgpu_pasid_xa, XA_FLAGS_LOCK_IRQ | XA_FLAGS_ALLOC1);
+static u32 amdgpu_pasid_xa_next;
 
 /* Helper to free pasid from a fence callback */
 struct amdgpu_pasid_cb {
@@ -48,40 +51,48 @@ struct amdgpu_pasid_cb {
 
 /**
  * amdgpu_pasid_alloc - Allocate a PASID
- * @bits: Maximum width of the PASID in bits, must be at least 1
+ * @bits: Number of PASID bits supported by the hardware
+ * @fpriv: DRM file private to associate with the PASID
  *
- * Allocates a PASID of the given width while keeping smaller PASIDs
- * available if possible.
+ * Uses the kernel's XArray cyclic allocator.
+ * Allocates sequentially with automatic wrap-around.
  *
- * Returns a positive integer on success. Returns %-EINVAL if bits==0.
- * Returns %-ENOSPC if no PASID was available. Returns %-ENOMEM on
- * memory allocation failure.
+ * Returns:
+ * Allocated PASID on success or a negative error code on failure.
  */
-int amdgpu_pasid_alloc(unsigned int bits)
+int amdgpu_pasid_alloc(unsigned int bits, struct amdgpu_fpriv *fpriv)
 {
-	int pasid = -EINVAL;
+	u32 pasid;
+	int r;
 
-	for (bits = min(bits, 31U); bits > 0; bits--) {
-		pasid = ida_alloc_range(&amdgpu_pasid_ida, 1U << (bits - 1),
-					(1U << bits) - 1, GFP_KERNEL);
-		if (pasid != -ENOSPC)
-			break;
-	}
+	if (bits == 0)
+		return -EINVAL;
 
-	if (pasid >= 0)
-		trace_amdgpu_pasid_allocated(pasid);
+	r = xa_alloc_cyclic_irq(&amdgpu_pasid_xa, &pasid, fpriv,
+				XA_LIMIT(1, (1U << bits) - 1),
+				&amdgpu_pasid_xa_next, GFP_KERNEL);
+	if (r < 0)
+		return r;
 
+	trace_amdgpu_pasid_allocated(pasid);
 	return pasid;
 }
 
 /**
  * amdgpu_pasid_free - Free a PASID
  * @pasid: PASID to free
+ *
+ * Called in IRQ context.
  */
 void amdgpu_pasid_free(u32 pasid)
 {
+	unsigned long flags;
+
 	trace_amdgpu_pasid_freed(pasid);
-	ida_free(&amdgpu_pasid_ida, pasid);
+
+	xa_lock_irqsave(&amdgpu_pasid_xa, flags);
+	__xa_erase(&amdgpu_pasid_xa, pasid);
+	xa_unlock_irqrestore(&amdgpu_pasid_xa, flags);
 }
 
 static void amdgpu_pasid_free_cb(struct dma_fence *fence,
@@ -93,6 +104,71 @@ static void amdgpu_pasid_free_cb(struct dma_fence *fence,
 	amdgpu_pasid_free(cb->pasid);
 	dma_fence_put(fence);
 	kfree(cb);
+}
+
+/**
+ * amdgpu_pasid_clear_owner - Clear the owner associated with a PASID
+ * @pasid: PASID whose owner should be cleared
+ *
+ * Replace the stored owner with NULL while keeping the PASID allocated.
+ *
+ * This is used by the delayed PASID free path so that future PASID
+ * lookups cannot resolve a stale DRM file-private object while the PASID
+ * is still waiting for outstanding fences before being released.
+ */
+static void amdgpu_pasid_clear_owner(u32 pasid)
+{
+	unsigned long flags;
+
+	if (!pasid)
+		return;
+
+	xa_lock_irqsave(&amdgpu_pasid_xa, flags);
+	__xa_store(&amdgpu_pasid_xa, pasid, NULL, GFP_ATOMIC);
+	xa_unlock_irqrestore(&amdgpu_pasid_xa, flags);
+}
+
+/**
+ * amdgpu_pasid_lock - acquire the global PASID xarray lock
+ * @flags: storage for interrupt state
+ *
+ * Acquire the global PASID xarray lock with interrupts disabled.
+ * The saved interrupt state must be passed to
+ * amdgpu_pasid_unlock().
+ */
+void amdgpu_pasid_lock(unsigned long *flags)
+{
+	xa_lock_irqsave(&amdgpu_pasid_xa, *flags);
+}
+
+/**
+ * amdgpu_pasid_unlock - release the global PASID xarray lock
+ * @flags: interrupt state returned by amdgpu_pasid_lock()
+ *
+ * Release the global PASID xarray lock and restore the previous
+ * interrupt state.
+ */
+void amdgpu_pasid_unlock(unsigned long flags)
+{
+	xa_unlock_irqrestore(&amdgpu_pasid_xa, flags);
+}
+
+/**
+ * amdgpu_pasid_get_fpriv_locked - get the DRM owner of a PASID
+ * @pasid: PASID to resolve
+ *
+ * The caller must hold the PASID XArray lock.
+ *
+ * Returns:
+ * Pointer to the owning DRM file private, or %NULL if the PASID has no
+ * current owner.
+ *
+ * The returned pointer is only valid while the PASID lock remains held
+ * and must not be retained after calling amdgpu_pasid_unlock().
+ */
+struct amdgpu_fpriv *amdgpu_pasid_get_fpriv_locked(u32 pasid)
+{
+	return xa_load(&amdgpu_pasid_xa, pasid);
 }
 
 /**
@@ -109,6 +185,8 @@ void amdgpu_pasid_free_delayed(struct dma_resv *resv,
 	struct amdgpu_pasid_cb *cb;
 	struct dma_fence *fence;
 	int r;
+
+	amdgpu_pasid_clear_owner(pasid);
 
 	r = dma_resv_get_singleton(resv, DMA_RESV_USAGE_BOOKKEEP, &fence);
 	if (r)
@@ -615,4 +693,14 @@ void amdgpu_vmid_mgr_fini(struct amdgpu_device *adev)
 			dma_fence_put(id->pasid_mapping);
 		}
 	}
+}
+
+/**
+ * amdgpu_pasid_mgr_cleanup - cleanup PASID manager
+ *
+ * Cleanup the IDR allocator.
+ */
+void amdgpu_pasid_mgr_cleanup(void)
+{
+	xa_destroy(&amdgpu_pasid_xa);
 }
